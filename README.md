@@ -18,7 +18,10 @@ A PC runs the computer-vision pipeline (OpenCV) and streams the ball's pixel coo
 - [Hardware](#hardware)
   - [Bill of Materials](#bill-of-materials)
   - [Schematic & PCB](#schematic--pcb)
+  - [Board Connectors](#board-connectors)
   - [STM32 Pinout](#stm32-pinout)
+  - [Power](#power)
+  - [KiCad Source](#kicad-source)
 - [Mechanical Design](#mechanical-design)
 - [Computer Vision](#computer-vision)
 - [Control System (PID)](#control-system-pid)
@@ -114,13 +117,22 @@ ball-balancing-robot/
 │   │   └── README.md
 │   │
 │   └── stm32/                     # Deployed firmware (STM32CubeIDE / HAL)
-│       ├── usb_cdc.ioc           # CubeMX configuration (TIM2 PWM + USB CDC)
+│       ├── Core/                  # application code (main.c) + HAL init
+│       ├── Drivers/               # CMSIS + STM32F1xx HAL drivers
+│       ├── Middlewares/           # ST USB Device library
+│       ├── USB_DEVICE/            # USB CDC (virtual COM) app layer
+│       ├── usb_cdc.ioc            # CubeMX configuration (TIM2 PWM + USB CDC)
 │       ├── STM32F103C8TX_FLASH.ld
 │       ├── .cproject / .project / .mxproject
-│       └── README.md             # ⚠️ how to add the Core/Drivers/Middlewares sources
+│       └── README.md
 │
 ├── hardware/
-│   └── README.md                 # PCB, power, wiring notes
+│   ├── README.md                 # PCB, power, wiring notes
+│   └── kicad/                     # editable KiCad PCB source (open the .kicad_pro)
+│       ├── <project>.kicad_pro   #   project file
+│       ├── <project>.kicad_sch   #   schematic
+│       ├── <project>.kicad_pcb   #   board layout
+│       └── <project>.kicad_prl   #   local settings
 │
 └── docs/
     ├── images/                   # photos, CAD renders, schematic, PCB
@@ -159,6 +171,18 @@ The custom PCB acts as a carrier/breakout for the Blue Pill (`J1`, `J2`), the se
 >   <img src="docs/images/physical-board.jpeg" alt="STM32 Blue Pill hand-wired on perfboard" width="46%">
 > </p>
 
+### Board Connectors
+
+The board is a carrier/breakout that fans the Blue Pill out to the three servos and the ST-Link, distributing the external 5 V servo power and a common ground.
+
+| Ref | Role |
+|-----|------|
+| `J1`, `J2` | Blue Pill headers (2× 20-pin) that carry the MCU onto the board. |
+| `M1`, `M2`, `M3` | Servo connectors (signal / +5 V / GND) for legs A, B, C. |
+| `J4` | ST-Link V2 SWD header (SWDIO, SWCLK, 3V3, GND). |
+| `J5` | Auxiliary header. |
+| `C1`–`C3` | Decoupling for the servo power rail. |
+
 ### STM32 Pinout
 
 The firmware uses **TIM2** for three hardware-PWM servo channels and the on-chip **USB peripheral** as a CDC virtual COM port.
@@ -179,6 +203,26 @@ The firmware uses **TIM2** for three hardware-PWM servo channels and the on-chip
 **PWM timing.** TIM2 is clocked so that one count = 1 µs (`Prescaler = 72−1`) with a period of 20,000 counts (`Period = 20000−1`) → a **20 ms / 50 Hz** servo frame. Pulse widths in the ~1000–2000 µs range set servo position.
 
 > **Note on pin numbering.** The KiCad schematic labels the servos on PA0/PA1/**PA2**, while the shipped CubeMX configuration drives them on PA0/PA1/**PA3** (TIM2 channels 1, 2, 4). The firmware is the source of truth — use **PA0 / PA1 / PA3**.
+
+### Power
+
+> ⚠️ **Never** power the servos from the Blue Pill's on-board regulator — three servos under load can momentarily draw amps and will brown out the MCU.
+
+- Use a dedicated **5 V adapter** sized for your servos.
+- Tie **all grounds together** — PC USB ground, MCU ground, and the servo-supply ground — so the PWM signals share a common reference.
+
+### KiCad Source
+
+The board's editable source lives in [`hardware/kicad/`](hardware/kicad/):
+
+| File | What it is |
+|------|-----------|
+| `*.kicad_pro` | KiCad project file — open this one. |
+| `*.kicad_sch` | Schematic. |
+| `*.kicad_pcb` | PCB layout. |
+| `*.kicad_prl` | Project-local settings. |
+
+Open the `.kicad_pro` in **KiCad 7 or later** to view or edit the schematic and board, or to export gerbers for fabrication. Auto-generated backups, autosaves, and caches are excluded by `.gitignore`.
 
 ---
 
@@ -271,7 +315,7 @@ $$
 The geometric angle is then mapped to a servo command using the per-leg neutral and direction calibration:
 
 $$
-\theta_{\text{servo}} = \theta_{\text{neutral}} + s \cdot \operatorname{round}\!\left(\theta - \theta_0\right)
+\theta_{\text{servo}} = \theta_{\text{neutral}} + s \cdot \mathrm{round}\!\left(\theta - \theta_0\right)
 $$
 
 where $\theta_0$ is the baseline angle for a perfectly level plate (computed once at startup) and $s \in \{-1, +1\}$ sets the rotation direction. Each result is finally constrained to the safe travel limits before being written to the servo.
